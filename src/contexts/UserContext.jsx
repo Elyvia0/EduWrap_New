@@ -34,7 +34,7 @@ export function UserProvider({ children }) {
   const login = (userData) => {
     setSession({
       isLoggedIn: true,
-      user: { ...DEFAULT_USER.user, ...userData, xp: 2400, level: 12, streak: 5 } // Mock stats
+      user: { ...DEFAULT_USER.user, ...userData },
     });
   };
 

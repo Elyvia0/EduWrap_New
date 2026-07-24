@@ -1,9 +1,8 @@
 import { motion } from 'framer-motion';
-import { CheckCircle2, Circle, Clock, Flame, BookOpen, Users } from 'lucide-react';
-import { useUser } from '../../contexts/UserContext';
+import { Clock, Flame, Users } from 'lucide-react';
 import { useDashboard } from '../../contexts/DashboardContext';
 
-const StatCard = ({ icon: Icon, label, value, subtext, delay }) => (
+const StatCard = ({ icon: Icon, label, value, subtext }) => (
   <motion.div
     variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }}
     className="bg-(--bg-glass) backdrop-blur-xl border border-(--border-subtle) rounded-2xl p-5 hover:-translate-y-1 hover:shadow-(--shadow-glow) transition-all duration-300"
@@ -25,39 +24,35 @@ const StatCard = ({ icon: Icon, label, value, subtext, delay }) => (
   </motion.div>
 );
 
+function formatWeeklyHours(hours) {
+  const h = Number(hours);
+  const rounded = Math.round(h * 10) / 10;
+  return Number.isInteger(rounded) ? `${rounded}h` : `${rounded.toFixed(1)}h`;
+}
+
 export default function StatsGrid() {
-  const { user } = useUser();
-  const { dailyGoal } = useDashboard();
+  const { xp, xpToday, hoursThisWeek, dailyGoal } = useDashboard();
+  const weeklyTotal = hoursThisWeek + dailyGoal.current;
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-      <StatCard 
-        icon={Flame} 
-        label="Total XP" 
-        value={user.xp.toLocaleString()} 
-        subtext={<><span className="text-green-500 font-medium">+{dailyGoal.xpToday}</span> earned today</>} 
-        delay={0.1}
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+      <StatCard
+        icon={Flame}
+        label="Total XP"
+        value={xp.toLocaleString()}
+        subtext={<><span className="text-green-500 font-medium">+{xpToday}</span> earned today</>}
       />
-      <StatCard 
-        icon={CheckCircle2} 
-        label="Current Level" 
-        value={`Lvl ${user.level}`} 
-        subtext="Scholar Rank" 
-        delay={0.2}
+      <StatCard
+        icon={Clock}
+        label="Hours Studied"
+        value={formatWeeklyHours(weeklyTotal)}
+        subtext="This week"
       />
-      <StatCard 
-        icon={Clock} 
-        label="Hours Studied" 
-        value="34h" 
-        subtext="Top 15% this week" 
-        delay={0.3}
-      />
-      <StatCard 
-        icon={Users} 
-        label="Active Groups" 
-        value="3" 
-        subtext="2 sessions scheduled" 
-        delay={0.4}
+      <StatCard
+        icon={Users}
+        label="Active Groups"
+        value="3"
+        subtext="2 sessions scheduled"
       />
     </div>
   );

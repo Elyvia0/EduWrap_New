@@ -1,4 +1,5 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { getDashboardData, saveDashboardData } from '../services/dashboardStorage';
 
 const DashboardContext = createContext(null);
 
@@ -38,9 +39,260 @@ const MOCK_NOTIFICATIONS = [
   { id: 'n3', text: 'You were mentioned in General Chat', read: true },
 ];
 
+const DEFAULT_STATE = {
+  target: 4,
+  current: 0,
+  streak: 0,
+  lastActiveDate: null,
+  date: null,
+  xp: 0,
+  xpMonth: null,
+  hoursThisWeek: 0,
+  weekStart: null,
+  goalCelebrated: false,
+  goalCelebratedForDate: null,
+  bonusClaimed: false,
+  bonusClaimedForDate: null,
+};
+
+function getTodayString() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function getYesterdayString() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function getCurrentMonth() {
+  return new Date().toISOString().slice(0, 7);
+}
+
+function getMondayOfWeek(dateStr) {
+  const d = dateStr ? new Date(`${dateStr}T12:00:00`) : new Date();
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d.toISOString().slice(0, 10);
+}
+
+export function computeDailyXP(current, target) {
+  if (target <= 0) return 0;
+  return Math.round(Math.min(current / target, 1) * 50);
+}
+
+function loadInitialState() {
+  const stored = getDashboardData();
+  const today = getTodayString();
+  const currentMonth = getCurrentMonth();
+  const monday = getMondayOfWeek(today);
+
+  if (!stored) {
+    return {
+      ...DEFAULT_STATE,
+      xp: 100,
+      xpMonth: currentMonth,
+      weekStart: monday,
+    };
+  }
+
+  return {
+    ...DEFAULT_STATE,
+    xpMonth: currentMonth,
+    weekStart: monday,
+    ...stored,
+  };
+}
+
+/**
+ * Shared day-change check: finalizes previous day XP/hours, resets current,
+ * updates streak, and resets per-day celebration flags.
+ */
+function applyDayChange(state) {
+  const today = getTodayString();
+  const yesterday = getYesterdayString();
+  const currentMonth = getCurrentMonth();
+  const monday = getMondayOfWeek(today);
+
+  let {
+    target,
+    current,
+    streak,
+    lastActiveDate,
+    date,
+    xp,
+    xpMonth,
+    hoursThisWeek,
+    weekStart,
+    goalCelebrated,
+    goalCelebratedForDate,
+    bonusClaimed,
+    bonusClaimedForDate,
+  } = state;
+
+  const isNewDay = date !== null && date !== today;
+
+  if (isNewDay) {
+    const prevCurrent = current;
+    const prevTarget = target;
+    const prevDate = date;
+
+    let prevDayXP = computeDailyXP(prevCurrent, prevTarget);
+    if (bonusClaimed && bonusClaimedForDate === prevDate) {
+      prevDayXP += 200;
+    }
+
+    if (weekStart !== monday) {
+      hoursThisWeek = 0;
+      weekStart = monday;
+    }
+    hoursThisWeek += prevCurrent;
+
+    if (xpMonth !== currentMonth) {
+      xp = 0;
+      xpMonth = currentMonth;
+    }
+    xp += prevDayXP;
+
+    current = 0;
+    date = today;
+    goalCelebrated = false;
+    goalCelebratedForDate = null;
+    bonusClaimed = false;
+    bonusClaimedForDate = null;
+  } else if (date !== today) {
+    current = 0;
+    date = today;
+    if (!weekStart) weekStart = monday;
+    if (!xpMonth) xpMonth = currentMonth;
+    goalCelebrated = false;
+    goalCelebratedForDate = null;
+    bonusClaimed = false;
+    bonusClaimedForDate = null;
+  }
+
+  if (lastActiveDate !== today) {
+    if (lastActiveDate === yesterday) {
+      streak += 1;
+    } else {
+      streak = 0;
+    }
+    lastActiveDate = today;
+  }
+
+  return {
+    target,
+    current,
+    streak,
+    lastActiveDate,
+    date,
+    xp,
+    xpMonth,
+    hoursThisWeek,
+    weekStart,
+    goalCelebrated,
+    goalCelebratedForDate,
+    bonusClaimed,
+    bonusClaimedForDate,
+  };
+}
+
+function detectCelebration(prev, newCurrent, today) {
+  const prevRatio = prev.current / prev.target;
+  const newRatio = newCurrent / prev.target;
+  let celebration = null;
+  const updates = {};
+
+  if (newRatio >= 1 && prevRatio < 1 && prev.goalCelebratedForDate !== today) {
+    updates.goalCelebrated = true;
+    updates.goalCelebratedForDate = today;
+    celebration = 'goal';
+  }
+
+  if (newCurrent >= 7 && prev.current < 7 && prev.bonusClaimedForDate !== today) {
+    updates.bonusClaimed = true;
+    updates.bonusClaimedForDate = today;
+    celebration = 'bonus';
+  }
+
+  return { celebration, updates };
+}
+
+function computeXpToday(state) {
+  const today = getTodayString();
+  const dailyXP = computeDailyXP(state.current, state.target);
+  const bonusToday =
+    state.bonusClaimed && state.bonusClaimedForDate === today ? 200 : 0;
+  return dailyXP + bonusToday;
+}
+
 export function DashboardProvider({ children }) {
   const [tasks, setTasks] = useState(MOCK_TASKS);
-  
+  const [dashboardState, setDashboardState] = useState(() =>
+    applyDayChange(loadInitialState())
+  );
+  const [activeCelebration, setActiveCelebration] = useState(null);
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    saveDashboardData(dashboardState);
+  }, [dashboardState]);
+
+  useEffect(() => {
+    if (mountedRef.current) return;
+    mountedRef.current = true;
+
+    const today = getTodayString();
+    setDashboardState((prev) => {
+      const { celebration, updates } = detectCelebration(prev, prev.current, today);
+      if (celebration) {
+        setActiveCelebration(celebration);
+        return { ...prev, ...updates };
+      }
+      return prev;
+    });
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+
+      setDashboardState((prev) => {
+        const today = getTodayString();
+        let next = prev;
+
+        if (prev.date !== today || prev.lastActiveDate !== today) {
+          next = applyDayChange(prev);
+        }
+
+        const prevCurrent = next.current;
+        const newCurrent = prevCurrent + 30 / 3600;
+        const { celebration, updates } = detectCelebration(next, newCurrent, today);
+
+        const updated = { ...next, ...updates, current: newCurrent, date: today };
+        saveDashboardData(updated);
+
+        if (celebration) {
+          setActiveCelebration(celebration);
+        }
+
+        return updated;
+      });
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const clearCelebration = useCallback(() => {
+    setActiveCelebration(null);
+  }, []);
+
+  const setGoalTarget = useCallback((hours) => {
+    const clamped = Math.min(12, Math.max(1, Number(hours) || 4));
+    setDashboardState((prev) => ({ ...prev, target: clamped }));
+  }, []);
+
   const toggleTask = (id) => {
     setTasks(tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
   };
@@ -49,6 +301,8 @@ export function DashboardProvider({ children }) {
     if (!title.trim()) return;
     setTasks([{ id: Date.now().toString(), title, completed: false, priority }, ...tasks]);
   };
+
+  const xpToday = computeXpToday(dashboardState);
 
   return (
     <DashboardContext.Provider value={{
@@ -60,7 +314,18 @@ export function DashboardProvider({ children }) {
       recentActivity: MOCK_RECENT_ACTIVITY,
       leaderboard: MOCK_LEADERBOARD,
       notifications: MOCK_NOTIFICATIONS,
-      dailyGoal: { target: 4, current: 2.5, streak: 12, xpToday: 450 },
+      xp: dashboardState.xp,
+      xpToday,
+      hoursThisWeek: dashboardState.hoursThisWeek,
+      dailyGoal: {
+        target: dashboardState.target,
+        current: dashboardState.current,
+        streak: dashboardState.streak,
+        lastActiveDate: dashboardState.lastActiveDate,
+      },
+      setGoalTarget,
+      activeCelebration,
+      clearCelebration,
     }}>
       {children}
     </DashboardContext.Provider>

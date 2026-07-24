@@ -561,3 +561,182 @@ Phases 4–16 can be done in any order after Phase 3, but Phase 7 (Study Rooms) 
 | 15–16 | 2 | Profile + Settings |
 | 17 | 1 | Final Polish |
 | **Total** | **18 phases** | |
+
+
+## Feature Update: Daily Goal & Real Streak
+
+### Files involved
+- src/contexts/DashboardContext.jsx
+- src/pages/DashboardComponents/WelcomeHeader.jsx
+
+### 1. Set Goal button
+Add a "Set Goal" button immediately to the left of the Daily Goal / Streak
+card in WelcomeHeader.jsx. Clicking it opens a modal (reuse the existing
+Modal component from components/ui) with a number input for "hours per day"
+(min 1, max 12). On submit, call a new `setGoalTarget(hours)` function from
+DashboardContext and close the modal.
+
+### 2. Persist daily goal state
+In DashboardContext.jsx, replace the hardcoded `dailyGoal` object with real
+state, persisted to localStorage (same pattern as the other contexts in this
+app — read on mount, write on every change). Shape:
+
+  {
+    target: number,       // hours/day goal, user-settable, default 4
+    current: number,       // hours studied today (leave logic as-is/mocked for now)
+    streak: number,        // consecutive days used, starts at 0
+    lastActiveDate: string | null   // ISO date "YYYY-MM-DD" of last active day
+  }
+
+### 3. Streak logic (runs once when DashboardProvider mounts)
+Compare today's date to `lastActiveDate`:
+- If lastActiveDate === today → no change (already counted today)
+- If lastActiveDate === yesterday → streak += 1, lastActiveDate = today
+- Otherwise (gap of 2+ days, or lastActiveDate is null/first-ever use) →
+  streak = 0, lastActiveDate = today
+
+Streak starts at 0 for a brand-new user and only climbs on genuinely
+consecutive daily use. Missing a day resets it to 0.
+
+### Constraints
+- Follow existing Tailwind v4 arbitrary-value syntax (bg-(--var), not
+  bg-[var(--var)])
+- Don't touch tasks, activeRooms, or any other DashboardContext data
+- Don't touch Notes, Quiz, Flashcards, Doubts, or Files
+
+### 4. Real time tracking for "current" hours
+
+Track actual time spent with the app open (not simulated). In
+DashboardContext.jsx:
+
+- On mount, start an interval (every 30 seconds) that only counts time
+  while the tab is visible/focused — use the Page Visibility API
+  (document.visibilityState === 'visible') so it doesn't count time when
+  the user switches tabs or minimizes the browser.
+- Each tick, add the elapsed seconds to `current` (converted to hours,
+  e.g. current += 30/3600) and persist to localStorage immediately.
+- `current` resets to 0 whenever the day changes (tie this into the same
+  date-comparison logic already used for the streak check in section 3 —
+  one shared "is this a new day" check should reset both `current` and
+  decide the streak update, so they don't drift out of sync).
+- Store the running total keyed by date, e.g.
+  { date: "2026-07-22", hoursToday: 1.35 }, so a page refresh mid-session
+  doesn't lose progress — reload from localStorage first, then resume
+  the interval from there.
+- Clear the interval on component unmount (cleanup function) to avoid
+  memory leaks / duplicate timers.
+
+### Constraint addition
+- Do not use Web Workers or Service Workers for this — a simple
+  setInterval + Page Visibility check is enough for this app's scale.
+
+  ## Feature Update: Remove Level Card, Goal-Based XP, Real Weekly Hours
+
+### Files involved
+- src/pages/DashboardComponents/StatsGrid.jsx
+- src/contexts/DashboardContext.jsx
+- src/contexts/UserContext.jsx
+
+### 1. Remove the "Current Level" stat card
+In StatsGrid.jsx, delete the StatCard block with label="Current Level".
+Change the grid from `lg:grid-cols-4` to `lg:grid-cols-3` so the remaining
+three cards (Total XP, Hours Studied, Active Groups) space out evenly.
+
+### 2. Move XP ownership to DashboardContext
+Currently `xp` lives on the user object in UserContext.jsx and is hardcoded
+(2400) every login. Change this:
+- In UserContext.jsx's `login()` function, stop hardcoding xp/level/streak —
+  just spread in the real userData, no mock overrides.
+- In DashboardContext.jsx, add new persisted state:
+  {
+    xp: number,           // current month's XP total
+    xpMonth: string,      // "YYYY-MM" of the month xp belongs to
+  }
+- Note: since this app has no backend/signup API, treat "brand new user" as
+  "no dashboard data found in localStorage yet" — on that very first load,
+  initialize xp to 100 (a one-time welcome gift) and xpMonth to the current
+  month. This gift is NOT repeated on later monthly resets.
+- Update StatsGrid.jsx to read xp from useDashboard() instead of user.xp.
+
+### 3. Daily XP formula (goal closeness)
+Compute today's earned XP live, same way `current` (today's studied hours)
+already updates:
+
+  dailyXP = round( min(current / target, 1) * 50 )
+
+- 50 XP is the max earnable per day, awarded at 100%+ of the daily goal
+- Below 100%, XP scales proportionally (e.g. 50% of goal = 25 XP)
+- No bonus for exceeding the goal, capped at 50/day
+- Display this as the "+X earned today" subtext under Total XP (reuse the
+  existing "earned today" UI pattern already in StatsGrid)
+
+### 4. Roll dailyXP into the monthly total
+Hook this into the same "is this a new day" check already used for the
+streak/hours-per-day reset in the earlier Daily Goal feature:
+- When a new day is detected, take the PREVIOUS day's finalized dailyXP
+  (computed from that day's final current/target ratio) and add it to `xp`
+- Then check if the month has changed (compare today's "YYYY-MM" to the
+  stored xpMonth) — if so, reset xp to 0 and update xpMonth BEFORE adding
+  the new day's incoming dailyXP total for the new month
+
+### 5. Make "Hours Studied" real, weekly, resetting
+Add persisted state to DashboardContext.jsx:
+  {
+    hoursThisWeek: number,
+    weekStart: string   // ISO date of the most recent Monday
+  }
+- On the same "new day" check, add the previous day's finalized `current`
+  hours into hoursThisWeek
+- Compute the Monday of the current week; if it differs from the stored
+  weekStart, reset hoursThisWeek to 0 and update weekStart (this closes out
+  the old week before today's hours start accumulating into the new one)
+- In StatsGrid.jsx, replace the hardcoded "34h" with hoursThisWeek (format
+  like "12h" or "12.5h"), and change the subtext from the fake "Top 15%
+  this week" to something honest like "This week" (no invented ranking claim)
+
+### Constraints
+- Follow existing Tailwind v4 arbitrary-value syntax (bg-(--var), not bg-[var(--var)])
+- Reuse the existing day-change detection logic already built for the
+  Daily Goal & Streak feature — don't duplicate a second separate date-check
+- Don't touch Notes, Quiz, Flashcards, Doubts, Files, or Active Groups data
+
+## Feature Update: Goal Celebration, 7-Hour Bonus, Storage Abstraction
+
+### Files involved
+- src/contexts/DashboardContext.jsx
+- src/pages/DashboardComponents/ (new component, e.g. GoalCelebration.jsx)
+- src/services/ (new file, e.g. dashboardStorage.js)
+
+### 1. Centralize storage access (backend-readiness prep)
+Create src/services/dashboardStorage.js exporting simple functions like
+`getDashboardData()` and `saveDashboardData(data)` that wrap
+localStorage.getItem/setItem. Have DashboardContext.jsx call these instead
+of touching localStorage directly. This is the ONLY change needed later to
+swap in real API calls — don't touch any other file's logic for this reason,
+just centralize the read/write calls.
+
+### 2. Daily goal celebration (100%)
+Add a state flag per day: { goalCelebrated: boolean, forDate: string }.
+When current/target crosses 1.0 for the first time on a given day (not on
+every re-render, and not again if already celebrated today), trigger a
+short celebratory animation — confetti burst or a toast using the existing
+Toast component (components/ui) — with a message like "Daily goal reached!".
+Reset `goalCelebrated` to false at the same day-rollover point already used
+elsewhere.
+
+### 3. Seven-hour bonus (independent of daily goal %)
+Add a state flag per day: { bonusClaimed: boolean, forDate: string }.
+When `current` (today's studied hours) crosses 7 for the first time that
+day, award a one-time +200 XP bonus directly onto that day's earned XP
+(so it flows into the monthly `xp` total at the next day-rollover, same
+as regular dailyXP). This bonus is separate from the 0–50 daily-goal-based
+XP — don't cap it or blend it into that formula. Trigger a distinct,
+more prominent celebration (e.g. bigger confetti / different toast copy
+like "7-hour marathon! +200 XP") so it visually reads as a bigger deal
+than the regular goal celebration.
+Reset `bonusClaimed` to false at day-rollover, same as goalCelebrated.
+
+### Constraints
+- Follow existing Tailwind v4 arbitrary-value syntax (bg-(--var), not bg-[var(--var)])
+- Reuse the existing day-change detection already built for streak/XP/hours
+- Don't touch Notes, Quiz, Flashcards, Doubts, Files, or Active Groups data
