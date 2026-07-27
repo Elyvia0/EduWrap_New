@@ -740,3 +740,56 @@ Reset `bonusClaimed` to false at day-rollover, same as goalCelebrated.
 - Follow existing Tailwind v4 arbitrary-value syntax (bg-(--var), not bg-[var(--var)])
 - Reuse the existing day-change detection already built for streak/XP/hours
 - Don't touch Notes, Quiz, Flashcards, Doubts, Files, or Active Groups data
+
+## Feature Update: Functional AI Study Buddy (Groq API)
+
+### Files involved
+- .env (new, git-ignored — holds the API key)
+- src/services/groqService.js (new)
+- src/pages/DoubtsComponents/DoubtsRightSidebar.jsx
+
+### 1. Environment setup
+Create a .env file at the project root (add it to .gitignore if not already
+covered by the existing `*.env` pattern) with:
+  VITE_GROQ_API_KEY=paste_your_key_here
+I will paste my own real key into this file myself after it's created —
+leave the value as a placeholder in the code/instructions.
+
+### 2. Groq service
+Create src/services/groqService.js exporting an async function
+`askStudyBuddy(question)` that:
+- Sends a POST request to https://api.groq.com/openai/v1/chat/completions
+- Uses the Authorization header: `Bearer ${import.meta.env.VITE_GROQ_API_KEY}`
+- Uses model "llama-3.1-8b-instant" (fast, good for quick concept explanations)
+- System prompt: "You are a friendly, concise study assistant. Explain
+  concepts clearly and briefly for a student studying for exams. Keep
+  answers under 150 words unless asked for more detail."
+- Returns the assistant's reply text, or throws a clear error if the
+  request fails (bad key, rate limit, network error)
+
+### 3. Expand into a larger panel on click
+Currently the "AI Study Buddy" card in DoubtsRightSidebar.jsx is a small
+static box. Change this:
+- Clicking anywhere on the card header (the Sparkles icon + "AI Study
+  Buddy" title) opens an expanded panel/modal — reuse the existing Modal
+  component from components/ui if it supports a wide size, otherwise build
+  a simple overlay
+- The expanded panel must be at least 25% of the viewport width (use
+  min-w-[25vw] or similar) and comfortably tall (at least 60vh) so answers
+  are clearly readable — center it or dock it from the right, your choice,
+  but it should NOT be the same tiny sidebar width as before
+- Inside the expanded panel: a scrollable message history area (user
+  questions and AI answers, visually distinguished like a simple chat),
+  a text input at the bottom, and a send button
+- Show a loading indicator (e.g. animated dots) while waiting for the
+  Groq response
+- On error (bad key, network failure), show a friendly inline error
+  message in the chat area, not a crash
+- Add a close button (X) to collapse back to the small sidebar card
+
+### Constraints
+- Follow existing Tailwind v4 arbitrary-value syntax (bg-(--var), not bg-[var(--var)])
+- Don't touch Trending Topics, Top Solvers, or Live Activity sections in
+  the same file
+- Don't touch any other page's AI-related placeholder (e.g. the Study
+  Room's "Ask AI" box) — this task is scoped to Doubts only
