@@ -793,3 +793,126 @@ static box. Change this:
   the same file
 - Don't touch any other page's AI-related placeholder (e.g. the Study
   Room's "Ask AI" box) — this task is scoped to Doubts only
+
+## Feature Update: Fix Signup Fields (Correction)
+
+### Files involved
+- src/pages/Signup.jsx
+- src/pages/Onboarding.jsx
+
+### 1. Corrected Signup Form
+Correct the Signup page (`src/pages/Signup.jsx`) by removing the incorrect Role/Profile selector and establishing the exact specified field list:
+- **Full Name** (text input with User icon)
+- **Email** (email input with Mail icon)
+- **Password** (password input with Lock icon, eye toggle to show/hide, password strength meter)
+- **Confirm Password** (password input with Lock icon, instant match validation)
+- **Terms & Conditions** checkbox ("I agree to Terms of Service & Privacy Policy")
+- Clear validation error messages for missing fields, mismatched passwords, or unaccepted terms.
+
+### 2. Simulated OTP Verification Flow
+Upon submitting Step 1 of Signup:
+- Switch to Step 2: **Simulated OTP Verification** UI inside `Signup.jsx`.
+- Display a 6-digit PIN input area with 6 individual digit boxes (auto-focusing to next box on digit entry, handling backspace, paste support, and active focus rings).
+- Display a prominent Demo OTP banner/hint (e.g., `💡 Demo OTP: 123456`) with a "Quick Fill" button for fast testing.
+- 30-second countdown timer for resending OTP ("Resend code in 30s"). Active "Resend OTP" button after countdown expires, generating a fresh OTP.
+- "Verify & Continue" button validates the entered 6-digit code against the active OTP.
+- On successful OTP verification, save draft user details and navigate to `/onboarding` with pre-filled user details.
+- Provide a "Back to edit details" link to return to Step 1 if needed.
+
+### Constraints
+- Follow existing Tailwind v4 arbitrary-value syntax (`bg-(--var)`, `border-(--var)`, `text-(--var)`, not `bg-[var(--var)]`).
+- DO NOT touch or modify the Google/GitHub OAuth buttons on `Signup.jsx`.
+- DO NOT modify `Login.jsx`.
+- DO NOT modify any Dashboard components.
+
+## Feature Update: Add Missing Signup Fields (Precise Correction #2)
+
+### File
+- src/pages/Signup.jsx
+
+### What's still wrong
+The current form only has: Full Name, Email, Password, Confirm Password.
+College/Institute, Type of Study, and College ID were never added in the
+previous pass. This section fixes that specifically.
+
+### Exact change
+In the "details" step form (inside handleStartSignup's <form>), REPLACE
+the existing "Email" field block entirely (the one with label "Email" and
+the Mail icon Input) with THREE new fields, in this order:
+
+1. **College/Institute Name** — new text state `college`, label
+   "College/Institute", plain text Input (reuse the User icon or a
+   building-style icon if available in lucide-react, e.g. `Building2`),
+   placeholder "NIT Rourkela"
+
+2. **Type of Study** — new state `studyType`, label "Type of Study", a
+   <select> styled to match the existing Input components (same
+   bg-(--bg-glass), border-(--border-default), rounded-xl classes used
+   elsewhere in this file) with options: BTech, BSc, BCA, MBBS, MBA, MCA,
+   BE, MSc, MTech, PhD, Other
+
+3. **College ID** — new state `collegeId` (replaces the old `email`
+   state used for email specifically — keep `email` state name if easier,
+   just relabel), label "College ID", Mail icon Input, placeholder
+   "yourid@college.ac.in". In validateForm(), replace the existing generic
+   email regex check with one that ALSO requires an institute-style domain:
+   the value must match /\\S+@\\S+\\.(edu|ac\\.in|edu\\.in)$/i — show error
+   "Please enter a valid college ID (e.g. yourid@college.ac.in)" if it
+   doesn't match
+
+Update the OTP step's confirmation text ("We sent a 6-digit OTP code to...")
+to reference collegeId instead of email if the state was renamed.
+Update the navigate('/onboarding', { state: {...} }) call to also pass
+college and studyType along with name and email/collegeId.
+
+### Do NOT touch
+- The entire OTP step UI/logic (step === 'otp' block) — it's already
+  correct, leave it exactly as is
+- Password / Confirm Password fields — leave as is
+- Google/GitHub OAuth buttons — leave as
+
+## Feature Update: Branch/Year Fields + Centered Auth Layout
+
+### Files involved
+- src/pages/Signup.jsx
+- src/layouts/AuthLayout.jsx
+
+### 1. Add Branch and Year of Study fields
+In Signup.jsx, add two more fields right after "Type of Study":
+
+- **Branch/Major** — new state `branch`, label "Branch", a <select>
+  styled to match the other fields. Options should adapt to common
+  engineering/science branches: Computer Science, Mechanical, Electrical,
+  Electronics & Communication, Civil, Chemical, IT, Biotechnology, Other.
+  (Keep it as one general list rather than trying to dynamically change
+  per Type of Study — simpler and good enough for now.)
+
+- **Year of Study** — new state `yearOfStudy`, label "Year of Study", a
+  <select> with options: 1st Year, 2nd Year, 3rd Year, 4th Year, 5th Year,
+  Graduated
+
+Both are required fields — add matching validation errors in validateForm()
+if left unselected. Pass both along in the navigate('/onboarding', { state:
+{...} }) call alongside the other collected fields.
+
+### 2. Centered single-column auth layout (remove split screen)
+In AuthLayout.jsx, remove the current two-column layout (the left branding
+panel with "Your Study OS" + the right form panel side-by-side). Replace
+with:
+- A single full-screen background using the SAME gradient/color currently
+  used on the left panel (the purple-to-blue gradient) applied to the
+  whole viewport
+- The Signup/Login form card centered both horizontally and vertically in
+  the middle of that background (flex items-center justify-center min-h-screen)
+- Keep the "Your Study OS" branding text — place it ABOVE the form card
+  (small logo + tagline), not as a separate side panel, so it still shows
+  but doesn't split the screen
+- The form card itself keeps its existing glass/blur card styling
+
+### Constraints
+- Follow existing Tailwind v4 arbitrary-value syntax (bg-(--var), not bg-[var(--var)])
+- This layout change affects BOTH Login and Signup pages since they share
+  AuthLayout — make sure Login.jsx still renders correctly centered too,
+  don't break it
+- Don't touch the OTP step UI, password fields, or OAuth buttons in Signup.jsx
+- Don't touch Onboarding.jsx or Dashboard

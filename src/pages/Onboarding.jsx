@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import confetti from 'canvas-confetti';
 import { useUser } from '../contexts/UserContext';
 import { Button } from '../components/ui/Button';
@@ -29,9 +29,20 @@ export default function Onboarding() {
   const [loading, setLoading] = useState(false);
   const { login } = useUser();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const draftSignup = (() => {
+    try {
+      return JSON.parse(localStorage.getItem('ew_draft_signup') || '{}');
+    } catch {
+      return {};
+    }
+  })();
+
+  const userEmail = location.state?.email || draftSignup.email || 'user@example.com';
 
   // Form State
-  const [name, setName] = useState('');
+  const [name, setName] = useState(() => location.state?.name || draftSignup.name || '');
   const [avatarIndex, setAvatarIndex] = useState(1);
   const [selectedSubjects, setSelectedSubjects] = useState([]);
   const [selectedPrefs, setSelectedPrefs] = useState([]);
@@ -70,8 +81,9 @@ export default function Onboarding() {
 
     setTimeout(() => {
       login({
-        name: name || 'Student',
-        email: 'user@example.com',
+        name: name || draftSignup.name || 'Student',
+        email: userEmail,
+        role: location.state?.role || draftSignup.role || 'student',
         avatar: `https://api.dicebear.com/7.x/notionists/svg?seed=${avatarIndex}`,
         subjects: selectedSubjects,
         studyPreferences: selectedPrefs
