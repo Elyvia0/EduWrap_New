@@ -28,7 +28,7 @@ export default function Sandbox() {
   ];
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-12">
+    <div className="p-8 max-w-7xl mx-auto space-y-12 w-full min-w-0">
       <div>
         <h1 className="text-3xl font-bold mb-8">UI Components Sandbox</h1>
         

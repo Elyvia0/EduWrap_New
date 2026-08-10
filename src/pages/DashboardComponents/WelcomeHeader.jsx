@@ -58,7 +58,7 @@ export default function WelcomeHeader() {
 
         <div className="flex items-center gap-4 bg-(--bg-glass) backdrop-blur-md border border-(--border-subtle) rounded-2xl p-4 shadow-(--shadow-glow) flex-1 md:flex-initial">
           <div className="relative w-12 h-12 flex items-center justify-center shrink-0">
-            <svg className="w-full h-full transform -rotate-90">
+            <svg className="w-full h-full transform -rotate-90" viewBox="0 0 48 48">
               <circle cx="24" cy="24" r="20" stroke="currentColor" strokeWidth="4" fill="transparent" className="text-(--border-default)" />
               <circle cx="24" cy="24" r="20" stroke="currentColor" strokeWidth="4" fill="transparent" className="text-[color:oklch(0.58_0.22_var(--accent-hue))]" strokeDasharray={125.6} strokeDashoffset={125.6 - (125.6 * progress) / 100} strokeLinecap="round" />
             </svg>

@@ -1,5 +1,26 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { getDashboardData, saveDashboardData } from '../services/dashboardStorage';
+import { useUser } from './UserContext';
+import {
+  userDoc,
+  userTasks,
+  userNotifications,
+  roomsRef,
+  usersRef,
+  fetchDoc,
+  fetchQuery,
+  createDoc,
+  patchDoc,
+  removeDoc,
+  safeOnSnapshot,
+  query,
+  where,
+  orderBy,
+  limit,
+  doc,
+  serverTimestamp,
+  timeAgo,
+} from '../firebase/firestore';
 
 const DashboardContext = createContext(null);
 
@@ -228,7 +249,9 @@ function computeXpToday(state) {
 }
 
 export function DashboardProvider({ children }) {
-  const [tasks, setTasks] = useState(MOCK_TASKS);
+  const { user, isLoggedIn } = useUser();
+  const uid = user?.id;
+
   const [dashboardState, setDashboardState] = useState(() =>
     applyDayChange(loadInitialState())
   );
@@ -293,14 +316,125 @@ export function DashboardProvider({ children }) {
     setDashboardState((prev) => ({ ...prev, target: clamped }));
   }, []);
 
-  const toggleTask = (id) => {
-    setTasks(tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
-  };
+  const [tasks, setTasks] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [activeRooms, setActiveRooms] = useState([]);
+  const [upcomingSessions, setUpcomingSessions] = useState([]);
+  const [recentActivity, setRecentActivity] = useState([]);
+  const [dailyGoal, setDailyGoal] = useState({ target: 4, current: 0, streak: 0, xpToday: 0 });
 
-  const addTask = (title, priority = 'medium') => {
-    if (!title.trim()) return;
-    setTasks([{ id: Date.now().toString(), title, completed: false, priority }, ...tasks]);
-  };
+  // ─── REAL-TIME: USER TASKS (limit 50 for zero-cost quota safety) ───
+  useEffect(() => {
+    if (!uid) return;
+
+    const q = query(userTasks(uid), orderBy('createdAt', 'desc'), limit(50));
+    const unsubscribe = safeOnSnapshot(q, (snap) => {
+      const items = snap.docs.map(d => ({
+        id: d.id,
+        ...d.data(),
+        createdAt: timeAgo(d.data().createdAt),
+      }));
+      setTasks(items);
+    }, (err) => {
+      console.error('Tasks listener error:', err);
+    });
+
+    return () => unsubscribe();
+  }, [uid]);
+
+  // ─── REAL-TIME: NOTIFICATIONS ───
+  useEffect(() => {
+    if (!uid) return;
+
+    const q = query(userNotifications(uid), orderBy('createdAt', 'desc'), limit(10));
+    const unsubscribe = safeOnSnapshot(q, (snap) => {
+      setNotifications(snap.docs.map(d => ({
+        id: d.id,
+        ...d.data(),
+        time: timeAgo(d.data().createdAt),
+      })));
+    });
+
+    return () => unsubscribe();
+  }, [uid]);
+
+  // ─── LEADERBOARD: Top users by XP ───
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
+    const q = query(usersRef, orderBy('xp', 'desc'), limit(10));
+    const unsubscribe = safeOnSnapshot(q, (snap) => {
+      setLeaderboard(snap.docs.map((d, i) => ({
+        id: d.id,
+        name: d.data().name || 'Anonymous',
+        xp: d.data().xp || 0,
+        rank: i + 1,
+        avatar: d.data().avatar,
+      })));
+    });
+
+    return () => unsubscribe();
+  }, [isLoggedIn]);
+
+  // ─── USER'S ACTIVE ROOMS ───
+  useEffect(() => {
+    if (!uid) return;
+
+    const q = query(roomsRef, where('memberIds', 'array-contains', uid), limit(5));
+    const unsubscribe = safeOnSnapshot(q, (snap) => {
+      setActiveRooms(snap.docs.map(d => ({
+        id: d.id,
+        name: d.data().name,
+        participants: d.data().memberCount || 0,
+        category: d.data().category,
+      })));
+    });
+
+    return () => unsubscribe();
+  }, [uid]);
+
+  // ─── DAILY GOAL derived from user data ───
+  useEffect(() => {
+    if (!user) return;
+    setDailyGoal({
+      target: 4,
+      current: Math.min(user.xp ? (user.xp % 500) / 125 : 0, 4),
+      streak: user.streak || 0,
+      xpToday: user.xp ? user.xp % 500 : 0,
+    });
+  }, [user]);
+
+  // ─── TASK CRUD ───
+  const toggleTask = useCallback(async (taskId) => {
+    if (!uid) return;
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    await patchDoc(doc(userTasks(uid), taskId), { completed: !task.completed });
+  }, [uid, tasks]);
+
+  const addTask = useCallback(async (title, priority = 'medium') => {
+    if (!uid || !title.trim()) return;
+    await createDoc(userTasks(uid), { title, completed: false, priority });
+  }, [uid]);
+
+  const deleteTask = useCallback(async (taskId) => {
+    if (!uid) return;
+    await removeDoc(doc(userTasks(uid), taskId));
+  }, [uid]);
+
+  // ─── NOTIFICATION MANAGEMENT ───
+  const markNotificationRead = useCallback(async (notifId) => {
+    if (!uid) return;
+    await patchDoc(doc(userNotifications(uid), notifId), { read: true });
+  }, [uid]);
+
+  const clearNotifications = useCallback(async () => {
+    if (!uid) return;
+    for (const n of notifications) {
+      await removeDoc(doc(userNotifications(uid), n.id));
+    }
+  }, [uid, notifications]);
 
   const xpToday = computeXpToday(dashboardState);
 
@@ -309,11 +443,14 @@ export function DashboardProvider({ children }) {
       tasks,
       toggleTask,
       addTask,
-      activeRooms: MOCK_ACTIVE_ROOMS,
-      upcomingSessions: MOCK_UPCOMING_SESSIONS,
-      recentActivity: MOCK_RECENT_ACTIVITY,
-      leaderboard: MOCK_LEADERBOARD,
-      notifications: MOCK_NOTIFICATIONS,
+      deleteTask,
+      activeRooms: activeRooms.length > 0 ? activeRooms : MOCK_ACTIVE_ROOMS,
+      upcomingSessions: upcomingSessions.length > 0 ? upcomingSessions : MOCK_UPCOMING_SESSIONS,
+      recentActivity: recentActivity.length > 0 ? recentActivity : MOCK_RECENT_ACTIVITY,
+      leaderboard: leaderboard.length > 0 ? leaderboard : MOCK_LEADERBOARD,
+      notifications: notifications.length > 0 ? notifications : MOCK_NOTIFICATIONS,
+      markNotificationRead,
+      clearNotifications,
       xp: dashboardState.xp,
       xpToday,
       hoursThisWeek: dashboardState.hoursThisWeek,
@@ -322,6 +459,7 @@ export function DashboardProvider({ children }) {
         current: dashboardState.current,
         streak: dashboardState.streak,
         lastActiveDate: dashboardState.lastActiveDate,
+        xpToday,
       },
       setGoalTarget,
       activeCelebration,

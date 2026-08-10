@@ -23,7 +23,7 @@ export default function Topbar({ onMenuClick, onOpenCommandPalette }) {
   };
 
   return (
-    <header className="flex items-center gap-4 px-4 h-16 border-b border-(--border-default) bg-(--bg-elevated)/80 backdrop-blur-md shrink-0 sticky top-0 z-30">
+    <header className="flex items-center gap-2 sm:gap-4 px-3 sm:px-4 h-16 border-b border-(--border-default) bg-(--bg-elevated)/80 backdrop-blur-md shrink-0 sticky top-0 z-30 overflow-hidden">
       {/* Mobile menu toggle */}
       <IconButton 
         variant="ghost" 
@@ -40,7 +40,7 @@ export default function Topbar({ onMenuClick, onOpenCommandPalette }) {
         className="flex items-center gap-2 flex-1 max-w-md px-3 py-2 rounded-xl bg-(--bg-glass) border border-(--border-default) hover:border-[color:oklch(0.58_0.22_var(--accent-hue)_/_0.4)] transition-all text-left text-(--text-muted) group"
       >
         <Search size={16} className="group-hover:text-[color:oklch(0.58_0.22_var(--accent-hue))] transition-colors" />
-        <span className="flex-1 text-sm">Search or type a command...</span>
+        <span className="flex-1 text-sm truncate">Search or type a command...</span>
         <div className="hidden sm:flex items-center gap-1">
           <kbd className="px-1.5 py-0.5 rounded shadow-sm bg-(--bg-elevated) border border-(--border-strong) text-[10px] font-mono font-medium">⌘</kbd>
           <kbd className="px-1.5 py-0.5 rounded shadow-sm bg-(--bg-elevated) border border-(--border-strong) text-[10px] font-mono font-medium">K</kbd>
@@ -56,7 +56,7 @@ export default function Topbar({ onMenuClick, onOpenCommandPalette }) {
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
         <IconButton variant="ghost" aria-label="Toggle Theme" onClick={toggleTheme}>
           {theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches) ? <Moon size={18} /> : <Sun size={18} />}
         </IconButton>
@@ -68,8 +68,8 @@ export default function Topbar({ onMenuClick, onOpenCommandPalette }) {
               <IconButton variant="ghost" aria-label="Notifications">
                 <Bell size={18} />
               </IconButton>
-              <div className="absolute top-1.5 right-1.5">
-                <CountBadge count={3} variant="error" size="sm" className="!text-[8px] !px-1 shadow-sm" />
+              <div className="absolute -top-0.5 -right-0.5 pointer-events-none">
+                <CountBadge count={3} variant="error" size="sm" className="!text-[8px] !min-w-[16px] !h-[16px] !px-1 shadow-sm" />
               </div>
             </div>
           }
@@ -94,8 +94,8 @@ export default function Topbar({ onMenuClick, onOpenCommandPalette }) {
             <div className="text-sm font-semibold text-(--text-primary)">{user.name}</div>
             <div className="text-xs text-(--text-muted) truncate">{user.email || 'student@university.edu'}</div>
           </div>
-          <DropdownItem icon={UserIcon}>Profile</DropdownItem>
-          <DropdownItem icon={Settings}>Account Settings</DropdownItem>
+          <DropdownItem icon={UserIcon} onClick={() => navigate('/profile')}>Profile</DropdownItem>
+          <DropdownItem icon={Settings} onClick={() => navigate('/settings')}>Account Settings</DropdownItem>
           <DropdownDivider />
           <DropdownItem icon={LogOut} className="text-red-500 hover:!bg-red-500/10" onClick={() => { logout(); navigate('/'); }}>Log out</DropdownItem>
         </Dropdown>

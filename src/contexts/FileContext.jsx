@@ -1,267 +1,426 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import { useUser } from './UserContext';
+import {
+  filesRef,
+  fileDoc,
+  userFolders,
+  createDoc,
+  createDocWithId,
+  patchDoc,
+  removeDoc,
+  safeOnSnapshot,
+  query,
+  where,
+  orderBy,
+  limit,
+  doc,
+  serverTimestamp,
+  increment,
+  timeAgo,
+} from '../firebase/firestore';
+import { uploadUserFile, deleteFile as deleteStorageFile } from '../firebase/storageService';
+
+const DEFAULT_FILES = [
+  {
+    id: 'file-dsa-pdf',
+    name: 'Advanced Data Structures & Algorithms Guide.pdf',
+    type: 'pdf',
+    size: '7.8 MB',
+    sizeBytes: 8178892,
+    category: 'Engineering',
+    folder: 'f-cs',
+    storageUrl: '/pdfs/0edabb6c92634ccb85df21c7bc9598f7.pdf',
+    isStarred: true,
+    isPinned: true,
+    downloadCount: 142,
+    source: { type: 'upload', action: 'Public Resources' },
+    related: { doubts: [], flashcards: [], rooms: ['room-eng'] },
+    owner: { id: 'sys', name: 'EduWrap Curators', initials: 'EC' },
+    createdAt: '1 day ago',
+    lastAccessedAt: '10 mins ago',
+  },
+  {
+    id: 'file-sys-pdf',
+    name: 'Computer Systems Architecture & OS Principles.pdf',
+    type: 'pdf',
+    size: '3.7 MB',
+    sizeBytes: 3879731,
+    category: 'Engineering',
+    folder: 'f-cs',
+    storageUrl: '/pdfs/1a82d02e9818480b80f497dc977edf0e.pdf',
+    isStarred: false,
+    isPinned: true,
+    downloadCount: 88,
+    source: { type: 'upload', action: 'Public Resources' },
+    related: { doubts: [], flashcards: [], rooms: ['room-eng'] },
+    owner: { id: 'sys', name: 'EduWrap Curators', initials: 'EC' },
+    createdAt: '2 days ago',
+    lastAccessedAt: '1 hour ago',
+  },
+  {
+    id: 'file-dbms-pdf',
+    name: 'Database Management Systems & SQL Fundamentals.pdf',
+    type: 'pdf',
+    size: '3.5 MB',
+    sizeBytes: 3670016,
+    category: 'Engineering',
+    folder: 'f-cs',
+    storageUrl: '/pdfs/3d6b43f1871b4f159b93d33462cb93f4.pdf',
+    isStarred: true,
+    isPinned: false,
+    downloadCount: 95,
+    source: { type: 'upload', action: 'Public Resources' },
+    related: { doubts: [], flashcards: [], rooms: ['room-eng'] },
+    owner: { id: 'sys', name: 'EduWrap Curators', initials: 'EC' },
+    createdAt: '3 days ago',
+    lastAccessedAt: '3 hours ago',
+  },
+  {
+    id: 'file-ml-pdf',
+    name: 'Machine Learning & Neural Networks Handbook.pdf',
+    type: 'pdf',
+    size: '12.2 MB',
+    sizeBytes: 12792627,
+    category: 'Engineering',
+    folder: 'f-ai',
+    storageUrl: '/pdfs/81257b03aa5f4197835d18e4a529bc94.pdf',
+    isStarred: true,
+    isPinned: true,
+    downloadCount: 230,
+    source: { type: 'upload', action: 'Public Resources' },
+    related: { doubts: [], flashcards: [], rooms: ['room-ai'] },
+    owner: { id: 'sys', name: 'EduWrap Curators', initials: 'EC' },
+    createdAt: '4 days ago',
+    lastAccessedAt: 'Yesterday',
+  },
+  {
+    id: 'file-math-pdf',
+    name: 'Discrete Mathematics & Graph Theory.pdf',
+    type: 'pdf',
+    size: '3.6 MB',
+    sizeBytes: 3774873,
+    category: 'Mathematics',
+    folder: 'f-cs',
+    storageUrl: '/pdfs/cdbb23eea3764074be2ca12901a1a053.pdf',
+    isStarred: false,
+    isPinned: false,
+    downloadCount: 64,
+    source: { type: 'upload', action: 'Public Resources' },
+    related: { doubts: [], flashcards: [], rooms: ['room-eng'] },
+    owner: { id: 'sys', name: 'EduWrap Curators', initials: 'EC' },
+    createdAt: '5 days ago',
+    lastAccessedAt: '2 days ago',
+  },
+  {
+    id: 'file-web-pdf',
+    name: 'Web Architecture & Cloud Distributed Systems.pdf',
+    type: 'pdf',
+    size: '5.9 MB',
+    sizeBytes: 6186598,
+    category: 'Engineering',
+    folder: 'f-notes',
+    storageUrl: '/pdfs/ea7dc9ff429d45b381b5e22577a51fa4.pdf',
+    isStarred: false,
+    isPinned: false,
+    downloadCount: 112,
+    source: { type: 'upload', action: 'Public Resources' },
+    related: { doubts: [], flashcards: [], rooms: ['room-eng'] },
+    owner: { id: 'sys', name: 'EduWrap Curators', initials: 'EC' },
+    createdAt: '6 days ago',
+    lastAccessedAt: '3 days ago',
+  }
+];
+
+const DEFAULT_FOLDERS = [
+  { id: 'f-cs', name: 'Computer Science Core', color: '#6366f1', fileCount: 4 },
+  { id: 'f-ai', name: 'Machine Learning & AI', color: '#ec4899', fileCount: 1 },
+  { id: 'f-notes', name: 'Lecture Notes & Slides', color: '#10b981', fileCount: 1 }
+];
+
+const DEFAULT_ACTIVITY = [
+  { id: 'act-1', user: 'You', action: 'accessed', fileName: 'Advanced Data Structures & Algorithms Guide.pdf', time: '10 mins ago' },
+  { id: 'act-2', user: 'Alex', action: 'downloaded', fileName: 'Computer Systems Architecture & OS Principles.pdf', time: '1 hour ago' },
+  { id: 'act-3', user: 'Sarah', action: 'starred', fileName: 'Database Management Systems & SQL Fundamentals.pdf', time: '3 hours ago' },
+  { id: 'act-4', user: 'You', action: 'downloaded', fileName: 'Machine Learning & Neural Networks Handbook.pdf', time: 'Yesterday' },
+];
 
 const FileContext = createContext(null);
 
-// ─── RICH MOCK FILES ───
-const MOCK_FILES = [
-  {
-    id: 'file_001', name: 'Quicksort Analysis.pdf', type: 'pdf',
-    size: '2.4 MB', sizeBytes: 2516582, category: 'DSA', folder: null,
-    isStarred: true, isPinned: false, downloadCount: 24,
-    source: { type: 'study-room', roomName: 'CS 2nd Year', classroomName: 'DSA Practice', sharedBy: 'Alex Chen', action: 'Shared during discussion' },
-    related: { doubts: ['dbt_001'], flashcards: [], rooms: ['room-cs2'] },
-    owner: { id: 'u2', name: 'Alex Chen', initials: 'AC' },
-    createdAt: '2d ago', lastAccessedAt: '1h ago',
-  },
-  {
-    id: 'file_002', name: 'Newton\'s Laws Cheatsheet.pdf', type: 'pdf',
-    size: '1.1 MB', sizeBytes: 1153434, category: 'Physics', folder: null,
-    isStarred: false, isPinned: true, downloadCount: 56,
-    source: { type: 'study-room', roomName: 'Physics 101', classroomName: 'Mechanics', sharedBy: 'Dr. Lisa Wong', action: 'Posted as lecture material' },
-    related: { doubts: ['dbt_005'], flashcards: [], rooms: [] },
-    owner: { id: 'u10', name: 'Dr. Lisa Wong', initials: 'LW' },
-    createdAt: '1w ago', lastAccessedAt: '3h ago',
-  },
-  {
-    id: 'file_003', name: 'React Hooks Deep Dive.md', type: 'doc',
-    size: '45 KB', sizeBytes: 46080, category: 'Coding', folder: null,
-    isStarred: false, isPinned: false, downloadCount: 12,
-    source: { type: 'ai-generated', action: 'AI Summary from study session' },
-    related: { doubts: ['dbt_006'], flashcards: [], rooms: ['room-cs2'] },
-    owner: { id: 'me', name: 'You', initials: 'Y' },
-    createdAt: '5h ago', lastAccessedAt: '5h ago',
-  },
-  {
-    id: 'file_004', name: 'Organic Chemistry Reactions.png', type: 'image',
-    size: '3.8 MB', sizeBytes: 3984588, category: 'Chemistry', folder: null,
-    isStarred: true, isPinned: false, downloadCount: 89,
-    source: { type: 'study-room', roomName: 'Medical Entrance Prep', classroomName: 'Organic Chem Summary', sharedBy: 'Lily P.', action: 'Shared as study material' },
-    related: { doubts: ['dbt_007'], flashcards: [], rooms: ['room-med'] },
-    owner: { id: 'u6', name: 'Lily P.', initials: 'LP' },
-    createdAt: '3d ago', lastAccessedAt: '6h ago',
-  },
-  {
-    id: 'file_005', name: 'Binary Search Implementation.py', type: 'code',
-    size: '2.1 KB', sizeBytes: 2150, category: 'DSA', folder: null,
-    isStarred: false, isPinned: false, downloadCount: 8,
-    source: { type: 'study-room', roomName: 'CS 2nd Year', classroomName: 'DSA Practice', sharedBy: 'Sarah Jenkins', action: 'Shared in classroom chat' },
-    related: { doubts: [], flashcards: [], rooms: ['room-cs2'] },
-    owner: { id: 'u1', name: 'Sarah Jenkins', initials: 'SJ' },
-    createdAt: '1d ago', lastAccessedAt: '12h ago',
-  },
-  {
-    id: 'file_006', name: 'DSA Sorting Flashcards Source.pdf', type: 'pdf',
-    size: '5.2 MB', sizeBytes: 5452595, category: 'DSA', folder: null,
-    isStarred: false, isPinned: false, downloadCount: 3,
-    source: { type: 'flashcard', action: 'Uploaded for flashcard generation' },
-    related: { doubts: [], flashcards: ['fc_dsa_01'], rooms: [] },
-    owner: { id: 'me', name: 'You', initials: 'Y' },
-    createdAt: '4d ago', lastAccessedAt: '2d ago',
-  },
-  {
-    id: 'file_007', name: 'CNN vs RNN Architecture Diagram.png', type: 'image',
-    size: '1.6 MB', sizeBytes: 1677722, category: 'AI/ML', folder: null,
-    isStarred: true, isPinned: false, downloadCount: 42,
-    source: { type: 'study-room', roomName: 'AI Research Lab', classroomName: 'Deep Learning', sharedBy: 'Marcus Lee', action: 'Posted as reference material' },
-    related: { doubts: ['dbt_004'], flashcards: [], rooms: [] },
-    owner: { id: 'u2', name: 'Marcus Lee', initials: 'ML' },
-    createdAt: '5d ago', lastAccessedAt: '1d ago',
-  },
-  {
-    id: 'file_008', name: 'Thermodynamics Quiz Prep.pdf', type: 'pdf',
-    size: '890 KB', sizeBytes: 911360, category: 'Physics', folder: null,
-    isStarred: false, isPinned: false, downloadCount: 15,
-    source: { type: 'quiz', action: 'Uploaded for quiz generation' },
-    related: { doubts: [], flashcards: [], rooms: [] },
-    owner: { id: 'me', name: 'You', initials: 'Y' },
-    createdAt: '1w ago', lastAccessedAt: '5d ago',
-  },
-  {
-    id: 'file_009', name: 'Fourier Transform Summary.md', type: 'doc',
-    size: '28 KB', sizeBytes: 28672, category: 'Maths', folder: null,
-    isStarred: false, isPinned: false, downloadCount: 31,
-    source: { type: 'ai-generated', action: 'AI-generated study sheet' },
-    related: { doubts: ['dbt_010'], flashcards: [], rooms: [] },
-    owner: { id: 'me', name: 'You', initials: 'Y' },
-    createdAt: '2d ago', lastAccessedAt: '8h ago',
-  },
-  {
-    id: 'file_010', name: 'Interview Prep Roadmap.pdf', type: 'pdf',
-    size: '4.5 MB', sizeBytes: 4718592, category: 'Interview Prep', folder: 'fld_002',
-    isStarred: true, isPinned: true, downloadCount: 128,
-    source: { type: 'upload', action: 'Manually uploaded' },
-    related: { doubts: [], flashcards: [], rooms: [] },
-    owner: { id: 'me', name: 'You', initials: 'Y' },
-    createdAt: '2w ago', lastAccessedAt: '4h ago',
-  },
-  {
-    id: 'file_011', name: 'TCP-UDP Comparison Notes.md', type: 'doc',
-    size: '15 KB', sizeBytes: 15360, category: 'Coding', folder: null,
-    isStarred: false, isPinned: false, downloadCount: 7,
-    source: { type: 'ai-generated', action: 'Exported from Notes' },
-    related: { doubts: ['dbt_002'], flashcards: [], rooms: ['room-cs2'] },
-    owner: { id: 'me', name: 'You', initials: 'Y' },
-    createdAt: '1d ago', lastAccessedAt: '1d ago',
-  },
-  {
-    id: 'file_012', name: 'Lecture Recording - Calculus III.mp4', type: 'video',
-    size: '245 MB', sizeBytes: 256901120, category: 'Maths', folder: 'fld_001',
-    isStarred: false, isPinned: false, downloadCount: 18,
-    source: { type: 'study-room', roomName: 'Calculus Survival Guide', classroomName: 'Homework Help', sharedBy: 'Isaac N.', action: 'Recorded live session' },
-    related: { doubts: [], flashcards: [], rooms: ['room-math'] },
-    owner: { id: 'u10', name: 'Isaac N.', initials: 'IN' },
-    createdAt: '3d ago', lastAccessedAt: '2d ago',
-  },
-  {
-    id: 'file_013', name: 'DP vs Greedy Cheatsheet.pdf', type: 'pdf',
-    size: '1.8 MB', sizeBytes: 1887437, category: 'DSA', folder: null,
-    isStarred: true, isPinned: false, downloadCount: 67,
-    source: { type: 'study-room', roomName: 'CS 2nd Year', classroomName: 'DSA Practice', sharedBy: 'Priya Sharma', action: 'Shared as exam prep material' },
-    related: { doubts: ['dbt_008'], flashcards: [], rooms: ['room-cs2'] },
-    owner: { id: 'u5', name: 'Priya Sharma', initials: 'PS' },
-    createdAt: '4d ago', lastAccessedAt: '6h ago',
-  },
-  {
-    id: 'file_014', name: 'Polymorphism Explained.md', type: 'doc',
-    size: '12 KB', sizeBytes: 12288, category: 'Coding', folder: null,
-    isStarred: false, isPinned: false, downloadCount: 19,
-    source: { type: 'ai-generated', action: 'AI Summary from doubt discussion' },
-    related: { doubts: ['dbt_009'], flashcards: [], rooms: [] },
-    owner: { id: 'me', name: 'You', initials: 'Y' },
-    createdAt: '3d ago', lastAccessedAt: '1d ago',
-  },
-  {
-    id: 'file_015', name: 'System Design Patterns.pdf', type: 'pdf',
-    size: '8.3 MB', sizeBytes: 8703795, category: 'Interview Prep', folder: 'fld_002',
-    isStarred: false, isPinned: false, downloadCount: 94,
-    source: { type: 'upload', action: 'Manually uploaded' },
-    related: { doubts: [], flashcards: [], rooms: [] },
-    owner: { id: 'me', name: 'You', initials: 'Y' },
-    createdAt: '1w ago', lastAccessedAt: '2d ago',
-  },
-  {
-    id: 'file_016', name: 'Le Chatelier Equilibrium Notes.pdf', type: 'pdf',
-    size: '920 KB', sizeBytes: 942080, category: 'Chemistry', folder: 'fld_001',
-    isStarred: false, isPinned: false, downloadCount: 11,
-    source: { type: 'study-room', roomName: 'Medical Entrance Prep', classroomName: 'Organic Chem Summary', sharedBy: 'Prof. Ahmed', action: 'Lecture handout' },
-    related: { doubts: ['dbt_007'], flashcards: [], rooms: ['room-med'] },
-    owner: { id: 'u12', name: 'Prof. Ahmed', initials: 'PA' },
-    createdAt: '6d ago', lastAccessedAt: '3d ago',
-  },
-];
-
-const MOCK_FOLDERS = [
-  { id: 'fld_001', name: 'Semester 4', icon: '📚', color: 'accent' },
-  { id: 'fld_002', name: 'Placement Prep', icon: '🎯', color: 'green' },
-  { id: 'fld_003', name: 'Important PDFs', icon: '📌', color: 'red' },
-  { id: 'fld_004', name: 'AI Notes', icon: '🤖', color: 'purple' },
-];
-
-const LIVE_ACTIVITY = [
-  { id: 'a1', user: 'Alex Chen', action: 'shared', fileName: 'Quicksort Analysis.pdf', target: 'DSA Practice', time: '2m ago' },
-  { id: 'a2', user: 'Priya Sharma', action: 'uploaded', fileName: 'DP vs Greedy Cheatsheet.pdf', target: null, time: '15m ago' },
-  { id: 'a3', user: 'AI Assistant', action: 'generated', fileName: 'React Hooks Deep Dive.md', target: null, time: '1h ago' },
-  { id: 'a4', user: 'Dr. Lisa Wong', action: 'shared', fileName: 'Newton\'s Laws Cheatsheet.pdf', target: 'Physics 101', time: '3h ago' },
-  { id: 'a5', user: 'Marcus Lee', action: 'downloaded', fileName: 'Interview Prep Roadmap.pdf', target: null, time: '5h ago' },
-];
-
-const DEFAULT_STATE = {
-  files: MOCK_FILES,
-  folders: MOCK_FOLDERS,
-  activity: LIVE_ACTIVITY,
-};
-
 export function FileProvider({ children }) {
-  const [state, setState] = useState(() => {
-    try {
-      const stored = localStorage.getItem('ew_files_data');
-      return stored ? JSON.parse(stored) : DEFAULT_STATE;
-    } catch {
-      return DEFAULT_STATE;
-    }
-  });
+  const { user, isLoggedIn } = useUser();
+  const uid = user?.id;
 
+  const [files, setFiles] = useState(DEFAULT_FILES);
+  const [folders, setFolders] = useState(DEFAULT_FOLDERS);
+  const [activity, setActivity] = useState(DEFAULT_ACTIVITY);
+  const [loading, setLoading] = useState(false);
+
+  // ─── REAL-TIME: Load user's files (limit 50 for zero-cost quota safety) ───
   useEffect(() => {
-    localStorage.setItem('ew_files_data', JSON.stringify(state));
-  }, [state]);
+    if (!uid) return;
 
-  const addFile = useCallback((fileData) => {
+    const q = query(filesRef, where('userId', '==', uid), orderBy('createdAt', 'desc'), limit(50));
+    const unsubscribe = safeOnSnapshot(q, (snap) => {
+      if (snap && snap.docs && snap.docs.length > 0) {
+        const firestoreFiles = snap.docs.map(d => ({
+          id: d.id,
+          ...d.data(),
+          createdAt: timeAgo(d.data().createdAt),
+          lastAccessedAt: timeAgo(d.data().lastAccessedAt || d.data().createdAt),
+        }));
+
+        setFiles(prev => {
+          const fsIds = new Set(firestoreFiles.map(f => f.id));
+          const unmergedDefaults = DEFAULT_FILES.filter(f => !fsIds.has(f.id));
+          return [...firestoreFiles, ...unmergedDefaults];
+        });
+      }
+    }, (err) => {
+      console.warn('Files Firestore listener warning:', err);
+    });
+
+    return () => unsubscribe();
+  }, [uid]);
+
+  // ─── REAL-TIME: Load user's folders ───
+  useEffect(() => {
+    if (!uid) return;
+
+    const unsubscribe = safeOnSnapshot(userFolders(uid), (snap) => {
+      if (snap && snap.docs && snap.docs.length > 0) {
+        const firestoreFolders = snap.docs.map(d => ({
+          id: d.id,
+          ...d.data(),
+        }));
+
+        setFolders(prev => {
+          const fsIds = new Set(firestoreFolders.map(f => f.id));
+          const unmergedDefaults = DEFAULT_FOLDERS.filter(f => !fsIds.has(f.id));
+          return [...firestoreFolders, ...unmergedDefaults];
+        });
+      }
+    }, (err) => {
+      console.warn('Folders Firestore listener warning:', err);
+    });
+
+    return () => unsubscribe();
+  }, [uid]);
+
+  // ─── ADD FILE (with optional Storage upload) ───
+  const addFile = useCallback(async (fileData, actualFile = null) => {
+    const effectiveUid = uid || 'user_' + Date.now();
+    const fileId = `file-${Date.now()}`;
+
+    let storageUrl = fileData.storageUrl || null;
+    let storagePath = null;
+
+    // If an actual File object is provided, create a blob URL immediately
+    if (actualFile) {
+      storageUrl = URL.createObjectURL(actualFile);
+    }
+
     const newFile = {
-      id: `file_${Date.now()}`,
-      ...fileData,
+      id: fileId,
+      userId: effectiveUid,
+      name: fileData.name || actualFile?.name || 'Document',
+      type: fileData.type || (actualFile?.name?.endsWith('.pdf') ? 'pdf' : 'doc'),
+      size: fileData.size || (actualFile ? `${(actualFile.size / (1024 * 1024)).toFixed(1)} MB` : '1.0 MB'),
+      sizeBytes: fileData.sizeBytes || actualFile?.size || 0,
+      category: fileData.category || 'General',
+      folder: fileData.folder || null,
+      storageUrl,
+      storagePath,
       isStarred: false,
       isPinned: false,
       downloadCount: 0,
-      related: { doubts: [], flashcards: [], rooms: [] },
-      createdAt: 'just now',
-      lastAccessedAt: 'just now',
+      source: fileData.source || { type: 'upload', action: 'Manually uploaded' },
+      related: fileData.related || { doubts: [], flashcards: [], rooms: [] },
+      owner: {
+        id: effectiveUid,
+        name: user?.name || 'You',
+        initials: (user?.name || 'Y').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase(),
+      },
+      createdAt: 'Just now',
+      lastAccessedAt: 'Just now',
     };
-    setState(prev => ({ ...prev, files: [newFile, ...prev.files] }));
-    return newFile.id;
+
+    // 1. Optimistically display in file list
+    setFiles(prev => [newFile, ...prev.filter(f => f.id !== fileId)]);
+
+    // 2. Storage upload in background if user is authenticated
+    (async () => {
+      if (actualFile && uid) {
+        try {
+          const result = await uploadUserFile(uid, actualFile);
+          if (result?.url) {
+            storageUrl = result.url;
+            storagePath = result.storagePath;
+            setFiles(prev => prev.map(f => f.id === fileId ? { ...f, storageUrl, storagePath } : f));
+          }
+        } catch (err) {
+          console.warn('Storage upload fallback to local blob:', err);
+        }
+      }
+
+      // 3. Firestore doc creation
+      try {
+        await createDocWithId(fileDoc(fileId), {
+          userId: effectiveUid,
+          name: newFile.name,
+          type: newFile.type,
+          size: newFile.size,
+          sizeBytes: newFile.sizeBytes,
+          category: newFile.category,
+          folder: newFile.folder,
+          storageUrl,
+          storagePath,
+          isStarred: false,
+          isPinned: false,
+          downloadCount: 0,
+          source: newFile.source,
+          related: newFile.related,
+          owner: newFile.owner,
+          createdAt: serverTimestamp(),
+          lastAccessedAt: serverTimestamp(),
+        });
+      } catch (dbErr) {
+        console.warn('File record saved locally:', dbErr);
+      }
+    })();
+
+    return fileId;
+  }, [uid, user]);
+
+  // ─── TOGGLE STAR ───
+  const toggleStar = useCallback(async (fileId) => {
+    setFiles(prev => prev.map(f => f.id === fileId ? { ...f, isStarred: !f.isStarred } : f));
+    try {
+      const file = files.find(f => f.id === fileId);
+      if (file) {
+        await patchDoc(fileDoc(fileId), { isStarred: !file.isStarred });
+      }
+    } catch {}
+  }, [files]);
+
+  // ─── TOGGLE PIN ───
+  const togglePin = useCallback(async (fileId) => {
+    setFiles(prev => prev.map(f => f.id === fileId ? { ...f, isPinned: !f.isPinned } : f));
+    try {
+      const file = files.find(f => f.id === fileId);
+      if (file) {
+        await patchDoc(fileDoc(fileId), { isPinned: !file.isPinned });
+      }
+    } catch {}
+  }, [files]);
+
+  // ─── MOVE TO FOLDER ───
+  const moveToFolder = useCallback(async (fileId, folderId) => {
+    setFiles(prev => prev.map(f => f.id === fileId ? { ...f, folder: folderId } : f));
+    try {
+      await patchDoc(fileDoc(fileId), { folder: folderId });
+    } catch {}
   }, []);
 
-  const toggleStar = useCallback((fileId) => {
-    setState(prev => ({
-      ...prev,
-      files: prev.files.map(f => f.id === fileId ? { ...f, isStarred: !f.isStarred } : f),
-    }));
+  // ─── DELETE FILE ───
+  const deleteFile = useCallback(async (fileId) => {
+    const file = files.find(f => f.id === fileId);
+    setFiles(prev => prev.filter(f => f.id !== fileId));
+
+    try {
+      if (file?.storagePath) {
+        await deleteStorageFile(file.storagePath).catch(() => {});
+      }
+      await removeDoc(fileDoc(fileId)).catch(() => {});
+    } catch {}
+  }, [files]);
+
+  // ─── RECORD DOWNLOAD ───
+  const recordDownload = useCallback(async (fileId) => {
+    setFiles(prev => prev.map(f => f.id === fileId ? { ...f, downloadCount: (f.downloadCount || 0) + 1 } : f));
+    try {
+      await patchDoc(fileDoc(fileId), {
+        downloadCount: increment(1),
+        lastAccessedAt: serverTimestamp(),
+      });
+    } catch {}
   }, []);
 
-  const togglePin = useCallback((fileId) => {
-    setState(prev => ({
-      ...prev,
-      files: prev.files.map(f => f.id === fileId ? { ...f, isPinned: !f.isPinned } : f),
-    }));
-  }, []);
-
-  const moveToFolder = useCallback((fileId, folderId) => {
-    setState(prev => ({
-      ...prev,
-      files: prev.files.map(f => f.id === fileId ? { ...f, folder: folderId } : f),
-    }));
-  }, []);
-
-  const deleteFile = useCallback((fileId) => {
-    setState(prev => ({
-      ...prev,
-      files: prev.files.filter(f => f.id !== fileId),
-    }));
-  }, []);
-
-  const addFolder = useCallback((folderData) => {
+  // ─── CREATE FOLDER ───
+  const createFolder = useCallback(async (folderData) => {
+    const effectiveUid = uid || 'user_' + Date.now();
+    const folderId = `f-${Date.now()}`;
     const newFolder = {
-      id: `fld_${Date.now()}`,
-      ...folderData,
+      id: folderId,
+      name: folderData.name,
+      color: folderData.color || '#6366f1',
+      fileCount: 0,
     };
-    setState(prev => ({ ...prev, folders: [...prev.folders, newFolder] }));
-    return newFolder.id;
-  }, []);
 
-  const incrementDownload = useCallback((fileId) => {
-    setState(prev => ({
-      ...prev,
-      files: prev.files.map(f => f.id === fileId ? { ...f, downloadCount: f.downloadCount + 1 } : f),
-    }));
-  }, []);
+    setFolders(prev => [...prev, newFolder]);
 
-  // Derived stats
-  const totalSize = state.files.reduce((acc, f) => acc + f.sizeBytes, 0);
-  const storageUsed = totalSize > 1073741824
-    ? `${(totalSize / 1073741824).toFixed(1)} GB`
-    : `${(totalSize / 1048576).toFixed(0)} MB`;
+    try {
+      await createDocWithId(doc(userFolders(effectiveUid), folderId), {
+        name: folderData.name,
+        color: folderData.color || '#6366f1',
+        createdAt: serverTimestamp(),
+      });
+    } catch {}
 
-  const filesByType = state.files.reduce((acc, f) => {
-    acc[f.type] = (acc[f.type] || 0) + 1;
-    return acc;
-  }, {});
+    return folderId;
+  }, [uid]);
+
+  // ─── DELETE FOLDER ───
+  const deleteFolder = useCallback(async (folderId) => {
+    setFolders(prev => prev.filter(f => f.id !== folderId));
+    setFiles(prev => prev.map(f => f.folder === folderId ? { ...f, folder: null } : f));
+
+    try {
+      if (uid) {
+        await removeDoc(doc(userFolders(uid), folderId));
+      }
+    } catch {}
+  }, [uid]);
+
+  const totalSizeBytes = useMemo(() => {
+    return files.reduce((acc, f) => acc + (f.sizeBytes || 0), 0);
+  }, [files]);
+
+  const storageUsed = useMemo(() => {
+    const mb = (totalSizeBytes / (1024 * 1024)).toFixed(1);
+    return `${mb} MB`;
+  }, [totalSizeBytes]);
+
+  const storageTotal = '5.0 GB';
+  const totalFiles = files.length;
+
+  const filesByType = useMemo(() => {
+    const counts = { pdf: 0, image: 0, video: 0, doc: 0, code: 0 };
+    files.forEach(f => {
+      const t = f.type || 'doc';
+      counts[t] = (counts[t] || 0) + 1;
+    });
+    return counts;
+  }, [files]);
 
   return (
     <FileContext.Provider value={{
-      ...state,
-      addFile, toggleStar, togglePin, moveToFolder, deleteFile,
-      addFolder, incrementDownload,
-      storageUsed, storageTotal: '5 GB', filesByType,
-      totalFiles: state.files.length,
+      files,
+      folders,
+      activity,
+      loading,
+      storageUsed,
+      storageTotal,
+      totalFiles,
+      filesByType,
+      addFile,
+      toggleStar,
+      togglePin,
+      moveToFolder,
+      deleteFile,
+      recordDownload,
+      incrementDownload: recordDownload,
+      createFolder,
+      deleteFolder,
     }}>
       {children}
     </FileContext.Provider>

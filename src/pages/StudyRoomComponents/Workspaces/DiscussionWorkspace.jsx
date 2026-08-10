@@ -2,35 +2,93 @@ import { useState, useRef, useEffect } from 'react';
 import { Send, Smile, Paperclip, Sparkles, MoreHorizontal } from 'lucide-react';
 import { Avatar } from '../../../components/ui/Avatar';
 import { useRoom } from '../../../contexts/RoomContext';
+import { useUser } from '../../../contexts/UserContext';
+import { 
+  roomMessages, 
+  createDoc, 
+  safeOnSnapshot, 
+  query, 
+  where, 
+  orderBy, 
+  limit, 
+  serverTimestamp, 
+  timeAgo 
+} from '../../../firebase/firestore';
+
+const DEFAULT_MESSAGES = [
+  { id: 'm1', author: 'Dr. House', avatar: 'D', role: 'admin', text: 'Welcome to the discussion board. Keep it civil.', time: '10:00 AM' },
+  { id: 'm2', author: 'Sarah Jenkins', avatar: 'S', role: 'member', text: 'Did anyone understand the last lecture?', time: '10:45 AM' },
+  { id: 'm3', author: 'Alex Chen', avatar: 'A', role: 'member', text: 'Mostly, but the part about thermodynamics was confusing.', time: '10:47 AM' },
+];
 
 export default function DiscussionWorkspace() {
   const { activeRoom, activeClassroom } = useRoom();
+  const { user } = useUser();
   const [input, setInput] = useState('');
+  const [messages, setMessages] = useState(DEFAULT_MESSAGES);
   const bottomRef = useRef(null);
 
-  // Mock messages
-  const [messages, setMessages] = useState([
-    { id: 1, author: 'Dr. House', avatar: 'D', role: 'admin', text: 'Welcome to the discussion board. Keep it civil.', time: '10:00 AM' },
-    { id: 2, author: 'Sarah Jenkins', avatar: 'S', role: 'admin', text: 'Did anyone understand the last lecture?', time: '10:45 AM' },
-    { id: 3, author: 'Alex Chen', avatar: 'A', role: 'member', text: 'Mostly, but the part about thermodynamics was confusing.', time: '10:47 AM' },
-  ]);
+  const roomId = activeRoom?.id;
+  const classroomId = activeClassroom?.id;
+
+  // Real-time Firestore sync for room messages
+  useEffect(() => {
+    if (!roomId) return;
+
+    const q = query(roomMessages(roomId), orderBy('createdAt', 'asc'), limit(50));
+    const unsubscribe = safeOnSnapshot(q, (snap) => {
+      if (!snap.empty) {
+        const firestoreMsgs = snap.docs.map(d => ({
+          id: d.id,
+          ...d.data(),
+          time: timeAgo(d.data().createdAt),
+        }));
+        // Filter by classroom if tagged, or show all room messages
+        const relevant = firestoreMsgs.filter(m => !m.classroomId || m.classroomId === classroomId);
+        setMessages(relevant.length > 0 ? relevant : DEFAULT_MESSAGES);
+      }
+    }, (err) => {
+      console.warn('Discussion messages listener:', err);
+    });
+
+    return () => unsubscribe();
+  }, [roomId, classroomId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, activeClassroom?.typing]);
 
-  const handleSend = (e) => {
+  const handleSend = async (e) => {
     e.preventDefault();
     if (!input.trim()) return;
-    setMessages(prev => [...prev, {
-      id: Date.now(),
-      author: 'You',
-      avatar: 'Y',
-      role: 'member',
-      text: input,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    }]);
+
+    const textToSend = input.trim();
     setInput('');
+
+    const newMsg = {
+      author: user?.name || 'You',
+      avatar: (user?.name?.[0] || 'Y').toUpperCase(),
+      role: 'member',
+      text: textToSend,
+      classroomId: classroomId || null,
+      userId: user?.id || 'anonymous',
+      createdAt: serverTimestamp(),
+    };
+
+    // Optimistic UI update
+    setMessages(prev => [...prev, {
+      ...newMsg,
+      id: `temp-${Date.now()}`,
+      time: 'just now',
+    }]);
+
+    if (roomId) {
+      try {
+        await createDoc(roomMessages(roomId), newMsg);
+      } catch (err) {
+        console.error('Failed to send discussion message:', err);
+      }
+    }
   };
 
   if (!activeClassroom) return null;
@@ -38,7 +96,7 @@ export default function DiscussionWorkspace() {
   return (
     <div className="flex flex-col h-full bg-(--bg-primary)">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-(--border-default) flex items-center justify-between shrink-0 bg-(--bg-elevated)/50 backdrop-blur-md">
+      <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-(--border-default) flex items-center justify-between shrink-0 bg-(--bg-elevated)/50 backdrop-blur-md">
         <div>
           <h2 className="font-bold text-lg flex items-center gap-2">
             <span className="text-(--text-muted)">#</span> {activeClassroom.name}
@@ -56,9 +114,9 @@ export default function DiscussionWorkspace() {
       </div>
 
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+      <div className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-4 sm:space-y-6">
         {messages.map(msg => (
-          <div key={msg.id} className="flex items-start gap-4 group">
+          <div key={msg.id} className="flex items-start gap-3 sm:gap-4 group">
             <Avatar initials={msg.avatar} className="shrink-0 mt-1" />
             <div className="flex-1 min-w-0">
               <div className="flex items-baseline gap-2 mb-1">
@@ -88,7 +146,7 @@ export default function DiscussionWorkspace() {
       </div>
 
       {/* Input Area */}
-      <div className="p-4 shrink-0 bg-(--bg-primary)">
+      <div className="p-3 sm:p-4 shrink-0 bg-(--bg-primary)">
         <form onSubmit={handleSend} className="flex items-center gap-2 bg-(--bg-elevated) border border-(--border-default) rounded-2xl p-2 focus-within:border-[color:oklch(0.58_0.22_var(--accent-hue))] focus-within:ring-1 focus-within:ring-[color:oklch(0.58_0.22_var(--accent-hue))] transition-all">
           <button type="button" className="p-2 rounded-xl text-(--text-muted) hover:text-(--text-primary) hover:bg-(--bg-glass) transition-colors">
             <Paperclip size={20} />
@@ -98,7 +156,7 @@ export default function DiscussionWorkspace() {
             value={input}
             onChange={e => setInput(e.target.value)}
             placeholder={`Message #${activeClassroom.name}`}
-            className="flex-1 bg-transparent border-none focus:outline-none text-[15px] px-2 text-(--text-primary) placeholder:text-(--text-muted)"
+            className="flex-1 min-w-0 bg-transparent border-none focus:outline-none text-[15px] px-2 text-(--text-primary) placeholder:text-(--text-muted)"
           />
           <button type="button" className="p-2 rounded-xl text-(--text-muted) hover:text-(--text-primary) hover:bg-(--bg-glass) transition-colors hidden sm:block">
             <Smile size={20} />

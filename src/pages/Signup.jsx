@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
+import { useUser } from '../contexts/UserContext';
 
 const GithubIcon = ({ size = 20 }) => (
   <svg
@@ -36,12 +37,49 @@ const GithubIcon = ({ size = 20 }) => (
     <path d="M9 18c-4.51 2-5-2-7-2" />
   </svg>
 );
+const XIcon = ({ size = 20 }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="currentColor"
+  >
+    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 22.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+  </svg>
+);
+
+const FacebookIcon = ({ size = 20 }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="#1877F2"
+  >
+    <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+  </svg>
+);
 
 export default function Signup() {
   const [step, setStep] = useState('details'); // 'details' | 'otp'
   const [loading, setLoading] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const [error, setError] = useState('');
   const navigate = useNavigate();
+  const { signup, loginWithGoogle, loginWithGithub, loginWithTwitter, loginWithFacebook, isLoggedIn, error: authError, clearError } = useUser();
+
+  // Automatically navigate if user is already authenticated
+  useEffect(() => {
+    if (isLoggedIn) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [isLoggedIn, navigate]);
+
+  // Sync auth context error
+  useEffect(() => {
+    if (authError) setError(authError);
+  }, [authError]);
 
   // Form State
   const [name, setName] = useState('');
@@ -120,16 +158,16 @@ export default function Signup() {
     if (!validateForm()) return;
 
     setLoading(true);
-    // Simulate generation of OTP
+    // Generate demo OTP for verification
     setTimeout(() => {
-      const generatedOtp = '123456'; // standard demo OTP
+      const generatedOtp = '123456';
       setActiveOtp(generatedOtp);
       setStep('otp');
       setResendTimer(30);
       setOtpDigits(['', '', '', '', '', '']);
       setOtpError('');
       setLoading(false);
-    }, 800);
+    }, 600);
   };
 
   // OTP Input handlers
@@ -140,7 +178,6 @@ export default function Signup() {
     setOtpDigits(newDigits);
     setOtpError('');
 
-    // Focus next input if digit entered
     if (value && index < 5) {
       otpInputRefs.current[index + 1]?.focus();
     }
@@ -180,7 +217,7 @@ export default function Signup() {
     setTimeout(() => setResendMessage(''), 4000);
   };
 
-  const handleVerifyOtp = (e) => {
+  const handleVerifyOtp = async (e) => {
     e.preventDefault();
     const enteredCode = otpDigits.join('');
     if (enteredCode.length < 6) {
@@ -193,16 +230,66 @@ export default function Signup() {
     }
 
     setVerifying(true);
-    // Save draft data for onboarding
-    try {
-      localStorage.setItem('ew_draft_signup', JSON.stringify({ name, college, studyType, branch, yearOfStudy, collegeId, email: collegeId }));
-    } catch {
-      // ignore storage error
-    }
+    setOtpError('');
+    if (clearError) clearError();
 
-    setTimeout(() => {
+    try {
+      await signup(collegeId, password, name);
+      try {
+        localStorage.setItem('ew_draft_signup', JSON.stringify({ name, college, studyType, branch, yearOfStudy, collegeId, email: collegeId }));
+      } catch {
+        // ignore storage error
+      }
       navigate('/onboarding', { state: { name, college, studyType, branch, yearOfStudy, collegeId, email: collegeId } });
-    }, 1000);
+    } catch (err) {
+      setOtpError(err.message || 'Firebase account creation failed.');
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const handleGoogleSignup = async () => {
+    setError('');
+    if (clearError) clearError();
+    try {
+      const user = await loginWithGoogle();
+      if (user) navigate('/dashboard');
+    } catch (err) {
+      if (err?.message) setError(err.message);
+    }
+  };
+
+  const handleGithubSignup = async () => {
+    setError('');
+    if (clearError) clearError();
+    try {
+      const user = await loginWithGithub();
+      if (user) navigate('/dashboard');
+    } catch (err) {
+      if (err?.message) setError(err.message);
+    }
+  };
+
+  const handleTwitterSignup = async () => {
+    setError('');
+    if (clearError) clearError();
+    try {
+      const user = await loginWithTwitter();
+      if (user) navigate('/dashboard');
+    } catch (err) {
+      if (err?.message) setError(err.message);
+    }
+  };
+
+  const handleFacebookSignup = async () => {
+    setError('');
+    if (clearError) clearError();
+    try {
+      const user = await loginWithFacebook();
+      if (user) navigate('/dashboard');
+    } catch (err) {
+      if (err?.message) setError(err.message);
+    }
   };
 
   return (
@@ -226,6 +313,13 @@ export default function Signup() {
             <h2 className="text-3xl font-bold mb-2">Create an account</h2>
             <p className="text-(--text-secondary) text-sm">Join the community and supercharge your study sessions.</p>
           </div>
+
+          {error && (
+            <div className="flex items-center gap-2 p-3 mb-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+              <AlertCircle size={16} className="shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
 
           <form onSubmit={handleStartSignup} className="space-y-4">
             <div>
@@ -415,7 +509,7 @@ export default function Signup() {
                   className="mt-0.5 rounded border-(--border-default) bg-(--bg-glass) text-accent-500 focus:ring-0"
                 />
                 <span className="text-xs text-(--text-secondary) leading-snug">
-                  I agree to the <a href="#" onClick={(e) => e.preventDefault()} className="text-accent-500 hover:underline">Terms of Service</a> and <a href="#" onClick={(e) => e.preventDefault()} className="text-accent-500 hover:underline">Privacy Policy</a>.
+                  I agree to the <Link to="/terms" className="text-accent-500 hover:underline">Terms of Service</Link> and <Link to="/privacy" className="text-accent-500 hover:underline">Privacy Policy</Link>.
                 </span>
               </label>
               {errors.terms && <p className="text-xs text-red-500 mt-1 pl-1">{errors.terms}</p>}
@@ -428,23 +522,53 @@ export default function Signup() {
             </div>
           </form>
 
-          {/* DO NOT TOUCH: Google and GitHub OAuth Buttons */}
+          {/* Social Sign Up Buttons */}
           <div className="mt-6 flex items-center gap-3">
             <div className="flex-1 h-px bg-(--border-default)"></div>
             <span className="text-xs text-(--text-muted) uppercase tracking-wider font-medium">Or sign up with</span>
             <div className="flex-1 h-px bg-(--border-default)"></div>
           </div>
 
-          <div className="mt-6 grid grid-cols-2 gap-3">
-            <button className="relative overflow-hidden group flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl border border-(--border-default) bg-(--bg-glass) hover:border-(--border-strong) transition-colors font-medium text-sm">
+          <div className="mt-6 grid grid-cols-4 gap-2">
+            <button 
+              type="button"
+              onClick={handleGoogleSignup}
+              aria-label="Sign up with Google"
+              title="Google"
+              className="relative overflow-hidden group flex items-center justify-center py-2.5 px-2 rounded-xl border border-(--border-default) bg-(--bg-glass) hover:border-(--border-strong) hover:bg-white/5 transition-all cursor-pointer shadow-sm active:scale-95"
+            >
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-[shimmer_1.5s_infinite]" />
-              <svg className="w-5 h-5" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" /><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.16v2.84C3.99 20.53 7.7 23 12 23z" /><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.16C1.43 8.55 1 10.22 1 12s.43 3.45 1.16 4.93l3.68-2.84z" /><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.16 7.07l3.68 2.84c.87-2.6 3.3-4.53 6.16-4.53z" /></svg>
-              Google
+              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" /><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.16v2.84C3.99 20.53 7.7 23 12 23z" /><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.16C1.43 8.55 1 10.22 1 12s.43 3.45 1.16 4.93l3.68-2.84z" /><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.16 7.07l3.68 2.84c.87-2.6 3.3-4.53 6.16-4.53z" /></svg>
             </button>
-            <button className="relative overflow-hidden group flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl border border-(--border-default) bg-(--bg-glass) hover:border-(--border-strong) transition-colors font-medium text-sm">
+            <button 
+              type="button"
+              onClick={handleGithubSignup}
+              aria-label="Sign up with GitHub"
+              title="GitHub"
+              className="relative overflow-hidden group flex items-center justify-center py-2.5 px-2 rounded-xl border border-(--border-default) bg-(--bg-glass) hover:border-(--border-strong) hover:bg-white/5 transition-all cursor-pointer shadow-sm active:scale-95"
+            >
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-[shimmer_1.5s_infinite]" />
-              <GithubIcon size={20} />
-              GitHub
+              <GithubIcon size={18} />
+            </button>
+            <button 
+              type="button"
+              onClick={handleTwitterSignup}
+              aria-label="Sign up with X (Twitter)"
+              title="X (Twitter)"
+              className="relative overflow-hidden group flex items-center justify-center py-2.5 px-2 rounded-xl border border-(--border-default) bg-(--bg-glass) hover:border-(--border-strong) hover:bg-white/5 transition-all cursor-pointer shadow-sm active:scale-95"
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-[shimmer_1.5s_infinite]" />
+              <XIcon size={16} />
+            </button>
+            <button 
+              type="button"
+              onClick={handleFacebookSignup}
+              aria-label="Sign up with Facebook"
+              title="Facebook"
+              className="relative overflow-hidden group flex items-center justify-center py-2.5 px-2 rounded-xl border border-(--border-default) bg-(--bg-glass) hover:border-(--border-strong) hover:bg-white/5 transition-all cursor-pointer shadow-sm active:scale-95"
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-[shimmer_1.5s_infinite]" />
+              <FacebookIcon size={18} />
             </button>
           </div>
 

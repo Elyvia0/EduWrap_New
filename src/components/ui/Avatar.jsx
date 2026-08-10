@@ -35,7 +35,7 @@ export function Avatar({ src, alt, initials, size = 'md', status, className = ''
       
       {status && (
         <span
-          className={`absolute bottom-0 right-0 rounded-full border-2 border-(--bg-base) ${statusColors[status] || statusColors.offline}`}
+          className={`absolute bottom-[5%] right-[5%] rounded-full border-2 border-(--bg-base) ${statusColors[status] || statusColors.offline}`}
           style={{ width: '25%', height: '25%', minWidth: '8px', minHeight: '8px' }}
         />
       )}
